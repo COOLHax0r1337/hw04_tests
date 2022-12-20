@@ -6,12 +6,11 @@ from django.conf import settings
 
 from ..models import Post, Group
 
-from http import HTTPStatus
-
 User = get_user_model()
 
 RANGE_POSTS = 12
 PAGINATE_PAGE_SECOND = 3
+POST_LIMIT_SECOND = 10
 
 
 class PostViewTests(TestCase):
@@ -152,16 +151,29 @@ class PostViewTests(TestCase):
                     form_field = response.context.get('form').fields.get(value)
                     self.assertIsInstance(form_field, expected)
 
-    def test_post_edit_guest(self):
-        form_data = {
-            'text': 'Текст в форме',
-            'group': self.group.id
-        }
-        response = self.guest_client.post(
-            self.POST_EDIT_URL,
-            data=form_data,
-            follow=True
+    def test_paginator_correct_context(self):
+        paginator_objects = []
+        for post_num in range(1, 18):
+            new_post = Post(
+                author=PostViewTests.user,
+                text='Тестовый пост ' + str(post_num),
+                group=PostViewTests.group
+            )
+            paginator_objects.append(new_post)
+        Post.objects.bulk_create(paginator_objects)
+        paginator_data = (
+            self.INDEX_URL,
+            self.GROUP_LIST_URL,
+            self.PROFILE_URL,
         )
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertRedirects(response,
-                             f'/auth/login/?next=/posts/{self.post.id}/edit/')
+        for paginator_page in paginator_data:
+            page_numbers = {
+                paginator_page: settings.POST_LIMIT,
+                ((paginator_page) + '?page=2'): POST_LIMIT_SECOND,
+            }
+            for page_number, count_page in page_numbers.items():
+                with self.subTest(page_number=page_number):
+                    response = self.client.get(page_number)
+                    self.assertEqual(
+                        len(response.context['page_obj']), count_page
+                    )

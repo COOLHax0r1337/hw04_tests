@@ -46,9 +46,16 @@ class PostFormTests(TestCase):
             follow=True
         )
         post = Post.objects.last()
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertEqual(Post.objects.count(), 1)
-        self.assertEqual(post.text, form_data['text'])
+        mapping = {
+            response.status_code: HTTPStatus.OK,
+            Post.objects.count(): 1,
+            post.text: form_data['text'],
+            post.group.pk: form_data['group'],
+            post.author: form_data['author']
+        }
+        for object, value in mapping.items():
+            with self.subTest(object=object):
+                self.assertEqual(object, value)
 
     def test_forms_edit_post(self):
         post = Post.objects.create(
@@ -67,7 +74,7 @@ class PostFormTests(TestCase):
             data=form_data,
             follow=True
         )
-        post = set(Post.objects.all()).pop()
+        post = Post.objects.last()
         mapping = {
             post.text: form_data['text'],
             post.group.pk: form_data['group'],
