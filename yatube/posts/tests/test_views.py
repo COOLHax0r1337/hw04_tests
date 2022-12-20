@@ -2,6 +2,7 @@ from django.test import TestCase, Client
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django import forms
+from django.conf import settings
 
 from ..models import Post, Group
 
@@ -9,11 +10,8 @@ from http import HTTPStatus
 
 User = get_user_model()
 
-RANGE_POSTS = 13
+RANGE_POSTS = 12
 PAGINATE_PAGE_SECOND = 3
-
-INDEX_URL = reverse('posts:index')
-CREATE_POST_URL = reverse('posts:post_create')
 
 
 class PostViewTests(TestCase):
@@ -28,7 +26,7 @@ class PostViewTests(TestCase):
         )
         cls.post = Post.objects.create(
             author=cls.user,
-            text='Война и мир - тупа топ',
+            text='Тестовый текст 11',
             group=cls.group,
         )
         cls.GROUP_LIST_URL = reverse(
@@ -43,11 +41,23 @@ class PostViewTests(TestCase):
         cls.POST_EDIT_URL = reverse(
             'posts:post_edit', kwargs={'post_id': cls.post.id}
         )
+        cls.INDEX_URL = reverse('posts:index')
+        cls.CREATE_POST_URL = reverse('posts:post_create')
 
     def setUp(self):
         self.guest_client = Client()
         self.authorized_client = Client()
         self.authorized_client.force_login(PostViewTests.user)
+        posts: list = []
+        for num in range(RANGE_POSTS):
+            posts.append(
+                Post(
+                    text=f'Тестовый текст {num}',
+                    group=self.group,
+                    author=self.user,
+                )
+            )
+        Post.objects.bulk_create(posts)
 
     def post_exist(self, page_context):
         if 'page_obj' in page_context:
@@ -70,38 +80,26 @@ class PostViewTests(TestCase):
             PostViewTests.post.group
         )
 
-    def test_paginator_correct_context(self):
-        paginator_objects = []
-        for i in range(1, 18):
-            new_post = Post(
-                author=PostViewTests.user,
-                text='Тестовый пост ' + str(i),
-                group=PostViewTests.group
-            )
-            paginator_objects.append(new_post)
-        Post.objects.bulk_create(paginator_objects)
-        paginator_data = {
-            'index': INDEX_URL,
-            'group': self.GROUP_LIST_URL,
-            'profile': self.PROFILE_URL,
-        }
-        for paginator_place, paginator_page in paginator_data.items():
-            with self.subTest(paginator_place=paginator_place):
-                response_page_1 = self.authorized_client.get(paginator_page)
-                response_page_2 = self.authorized_client.get(
-                    paginator_page + '?page=2'
-                )
-                self.assertEqual(len(
-                    response_page_1.context['page_obj']),
-                    10
-                )
-                self.assertEqual(len(
-                    response_page_2.context['page_obj']),
-                    8
-                )
+    def test_first_and_second_pages_contains_ten_records(self):
+        pages = (
+            self.INDEX_URL,
+            self.PROFILE_URL,
+            self.GROUP_LIST_URL,
+        )
+        for page in pages:
+            page_numbers = {
+                page: settings.POST_LIMIT,
+                ((page) + '?page=2'): PAGINATE_PAGE_SECOND
+            }
+            for page_number, count_page in page_numbers.items():
+                with self.subTest(page_number=page_number):
+                    response = self.client.get(page_number)
+                    self.assertEqual(
+                        len(response.context['page_obj']), count_page
+                    )
 
     def test_index_show_correct_context(self):
-        response_index = self.authorized_client.get(INDEX_URL)
+        response_index = self.authorized_client.get(self.INDEX_URL)
         page_index_context = response_index.context
         self.post_exist(page_index_context)
 
@@ -117,6 +115,21 @@ class PostViewTests(TestCase):
         self.post_exist(page_group_context)
         self.assertEqual(task_group, PostViewTests.group)
 
+    def test_views_post_added_correctly(self):
+        post = Post.objects.create(
+            text='Тест текст',
+            author=self.user,
+            group=self.group,
+        )
+        mapping = (
+            self.authorized_client.get(self.INDEX_URL),
+            self.authorized_client.get(self.GROUP_LIST_URL),
+            self.authorized_client.get(self.PROFILE_URL),
+        )
+        for response in mapping:
+            object = response.context['page_obj']
+            self.assertIn(post, object)
+
     def test_profile_show_correct_context(self):
         response_profile = self.authorized_client.get(self.PROFILE_URL)
         page_profile_context = response_profile.context
@@ -126,7 +139,7 @@ class PostViewTests(TestCase):
 
     def test_views_create_post_and_post_edit_pages_show_correct_context(self):
         post_context = (
-            CREATE_POST_URL,
+            self.CREATE_POST_URL,
             self.POST_EDIT_URL
         )
         for context in post_context:

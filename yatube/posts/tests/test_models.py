@@ -1,9 +1,11 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import Client, TestCase
 
 from ..models import Group, Post
 
 User = get_user_model()
+
+POST_LENGTH = 15
 
 
 class PostModelTest(TestCase):
@@ -21,13 +23,19 @@ class PostModelTest(TestCase):
             text='Тестовый пост',
         )
 
+    def setUp(self):
+        self.guest_client = Client()
+        self.authorized_client = Client()
+        self.authorized_client.force_login(self.user)
+
     def test_model_post_group_have_correct_obj_names(self):
-        post = PostModelTest.post
-        expected_object_name = post.text[:15]
-        self.assertEqual(expected_object_name, str(post))
-        group = PostModelTest.group
-        expected_object_name = group.title
-        self.assertEqual(expected_object_name, str(group))
+        field_str = (
+            (str(self.post), self.post.text[:POST_LENGTH]),
+            (str(self.group), self.group.title),
+        )
+        for value, expected_value in field_str:
+            with self.subTest(value=value):
+                self.assertEqual(value, expected_value)
 
     def test_verbose_name(self):
         post = PostModelTest.post

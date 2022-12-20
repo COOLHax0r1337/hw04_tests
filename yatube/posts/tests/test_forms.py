@@ -8,85 +8,81 @@ from ..models import Post, Group
 
 User = get_user_model()
 
-CREATE_POST_URL = reverse('posts:post_create')
-
 
 class PostFormTests(TestCase):
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.user = User.objects.create_user(username='auth')
         cls.group = Group.objects.create(
             title='test_group',
             slug='test_slug',
             description='Тестовое описание',
         )
-        cls.post = Post.objects.create(
-            author=cls.user,
-            text='Тестовый пост',
-            group=cls.group,
-        )
-        cls.PROFILE_URL = reverse(
-            'posts:profile', kwargs={'username': f'{cls.user.username}'})
-        cls.POST_DETAIL_URL = reverse(
-            'posts:post_detail', kwargs={'post_id': cls.post.id}
-        )
-        cls.POST_EDIT_URL = reverse(
-            'posts:post_edit', kwargs={'post_id': cls.post.id}
+        cls.group2 = Group.objects.create(
+            title='test_group2',
+            slug='test_slug2',
+            description='Тестовое описание2'
         )
 
     def setUp(self):
+        self.user = User.objects.create_user(username='auth')
+        self.guest_client = Client()
         self.authorized_client = Client()
         self.authorized_client.force_login(self.user)
+        self.PROFILE_URL = reverse(
+            'posts:profile', kwargs={'username': f'{self.user.username}'})
+        self.CREATE_POST_URL = reverse('posts:post_create')
 
-    def test_form_create_post(self):
-        initial_posts = set(Post.objects.all())
+    def test_auth_user_can_publish_post(self):
         form_data = {
             'text': 'Тестовый текст2',
             'group': self.group.id,
             'author': self.user,
         }
         response = self.authorized_client.post(
-            CREATE_POST_URL,
+            self.CREATE_POST_URL,
             data=form_data,
             follow=True
         )
-        self.assertRedirects(response, self.PROFILE_URL)
+        post = Post.objects.last()
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        final_posts = set(Post.objects.all()) - initial_posts
-        self.assertEqual(len(final_posts), 1)
-        post = final_posts.pop()
-        forms = {
-            post.author: 'author',
-            post.text: 'text',
-            post.group.pk: 'group',
-        }
-        for form, value in forms.items():
-            with self.subTest(form=form):
-                self.assertEqual(form, form_data[value])
+        self.assertEqual(Post.objects.count(), 1)
+        self.assertEqual(post.text, form_data['text'])
 
     def test_forms_edit_post(self):
-        self.group2 = Group.objects.create(
-            title='test_group2',
-            slug='test_slug2',
-            description='Тестовое описание2'
+        post = Post.objects.create(
+            text='test',
+            author=self.user,
+            group=self.group
         )
         form_data = {
             'text': 'Измененный тестовый текст',
             'group': self.group2.id,
         }
-        response = self.authorized_client.post(
-            self.POST_EDIT_URL,
+        self.authorized_client.post(
+            reverse(
+                'posts:post_edit', kwargs={'post_id': post.id}
+            ),
             data=form_data,
             follow=True
         )
-        post = Post.objects.get(pk=self.post.pk)
-        self.assertRedirects(response, self.POST_DETAIL_URL)
-        forms = {
-            post.text: 'text',
-            post.group.pk: 'group',
+        post = set(Post.objects.all()).pop()
+        mapping = {
+            post.text: form_data['text'],
+            post.group.pk: form_data['group'],
+            post.author: self.user
         }
-        for form, value in forms.items():
+        for form, value in mapping.items():
             with self.subTest(form=form):
-                self.assertEqual(form, form_data[value])
+                self.assertEqual(form, value)
+
+    def test_unauth_user_cant_publish_post(self):
+        form_data = {'text': 'Текст в форме'}
+        response = self.guest_client.post(
+            self.CREATE_POST_URL,
+            data=form_data,
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertRedirects(response, '/auth/login/?next=/create/')
